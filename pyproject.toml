@@ -1,0 +1,30 @@
+[project]
+name = "flet-build-action"
+version = "0.1.0"
+description = "GitHub Action for building Flet applications"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [
+    { name = "Flet developers", email = "hello@flet.dev" },
+]
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pyyaml>=6.0.2",
+    "pytest>=8.0.0",
+    "ruff>=0.8.0",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+]

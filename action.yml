@@ -1,0 +1,218 @@
+name: Build Flet app
+description: Build and optionally archive a Flet app for one target on the current runner.
+author: Flet
+
+branding:
+  icon: package
+  color: blue
+
+inputs:
+  target:
+    description: >-
+      Target passed to `flet build`. Supported values are `apk`, `aab`, `ipa`,
+      `ios-simulator`, `macos`, `linux`, `windows`, and `web`. Use macOS runners for
+      Apple targets (`ipa`, `ios-simulator` & `macos`), Linux runners for `linux`, and
+      Windows for `windows`; Android and Web can run on all three runners.
+    required: true
+  working-directory:
+    description: >-
+      Directory containing the Flet project's `pyproject.toml`. Relative paths are
+      resolved from the repository workspace. Defaults to the repository root.
+    required: false
+    default: "."
+  runner-python-version:
+    description: >-
+      Python interpreter used by uv to resolve the project environment and run
+      the Flet CLI, for example `3.12`. When set, it takes precedence over the
+      project's interpreter selection. When empty, uv resolves Python from the
+      project configuration.
+    required: false
+    default: ""
+  bundled-python-version:
+    description: >-
+      Python version bundled into the built application, for example `3.13`.
+      This is passed to `flet build --python-version` and is independent of
+      `runner-python-version`. When empty (the default), Flet resolves it from
+      `project.requires-python` of the `pyproject.toml`, then falls back to its
+      latest supported version.
+    required: false
+    default: ""
+  build-number:
+    description: >-
+      Internal, incrementing build identifier, commonly `github.run_number`.
+      This is passed to `flet build --build-number`. When empty (the default),
+      falls back to `[tool.flet].build_number` in `pyproject.toml`.
+    required: false
+    default: ""
+  build-version:
+    description: >-
+      User-facing release version in `x.y.z` form, such as `1.4.0`. This is
+      passed to `flet build --build-version` and overrides the version in
+      `pyproject.toml`. When empty, Flet uses project or template configuration.
+    required: false
+    default: ""
+  output-directory:
+    description: >-
+      Directory for the raw build output. Relative paths are resolved from
+      `working-directory`. The directory is deleted and recreated by Flet for
+      each build. Defaults to `build/<target>`.
+    required: false
+    default: ""
+  extra-args:
+    description: >-
+      Additional arguments for `flet build`, provided as one shell-like string,
+      for example `--split-per-abi --arch arm64`. Arguments are parsed without
+      shell evaluation. Prefer `pyproject.toml` for persistent configuration.
+      `--output`, `--python-version`, `--build-number`, and
+      `--build-version` must use their dedicated Action inputs.
+      Docs: https://flet.dev/docs/publish
+    required: false
+    default: ""
+  cache:
+    description: >-
+      Whether to enable caching of uv downloads, the Flutter SDK, and the Flet
+      download cache to speed up repeated runs. Defaults to `true`. Disable this
+      when troubleshooting caches or managing them separately, by setting it to
+      `false`.
+    required: false
+    default: "true"
+  install-linux-dependencies:
+    description: >-
+      Whether to install (using `apt-get`) the system packages reported by Flet
+      for a Linux desktop build. Defaults to `true`. Set it to `false` when
+      using a pre-provisioned or non-Debian runner. Its value is ignored on
+      non-Linux targets.
+    required: false
+    default: "true"
+  archive-output:
+    description: >-
+      Whether to create one platform-aware archive after the build. When `true`
+      (the default), produces ZIP files for all targets except Linux, which
+      produces tar.gz to preserve permissions and symlinks. When using
+      `actions/upload-artifact`, keep `archive-output` enabled and set
+      `upload-artifact`'s `archive` option to `false`. If `archive-output` is
+      `false`, this action does not create an archive and `archive-path` is empty.
+    required: false
+    default: "true"
+
+outputs:
+  output-path:
+    description: >-
+      Absolute path to the raw directory produced by `flet build`. Useful for
+      signing, deployment, or custom processing in later steps of the same job.
+    value: ${{ steps.prepare.outputs.output-path }}
+  archive-path:
+    description: >-
+      Absolute path to the portable archive (ZIP or tar.gz) of the build output.
+      It is empty when the `archive-output` input property is `false`.
+    value: ${{ steps.archive.outputs.archive-path }}
+  flet-version:
+    description: Resolved Flet CLI version used for the build.
+    value: ${{ steps.prepare.outputs.flet-version }}
+  flutter-version:
+    description: Flutter SDK version required by the resolved Flet version.
+    value: ${{ steps.prepare.outputs.flutter-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      with:
+        enable-cache: ${{ inputs.cache }}
+        python-version: ${{ inputs.runner-python-version }}
+        cache-suffix: ${{ inputs.target }}
+
+    - name: Resolve Flet build
+      id: prepare
+      env:
+        ACTION_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        ACTION_TARGET: ${{ inputs.target }}
+        ACTION_OUTPUT_DIRECTORY: ${{ inputs.output-directory }}
+        ACTION_INSTALL_LINUX_DEPENDENCIES: ${{ inputs.install-linux-dependencies }}
+        UV_PYTHON: ${{ inputs.runner-python-version }}
+        PYTHONUTF8: "1"
+        FLET_CLI_NO_RICH_OUTPUT: "1"
+      shell: bash
+      run: >-
+        uv run --directory "$ACTION_WORKING_DIRECTORY" python
+        "$GITHUB_ACTION_PATH/scripts/flet_action.py" prepare
+
+    - name: Cache Flutter SDK
+      if: inputs.cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/flutter/${{ steps.prepare.outputs.flutter-version }}
+        key: flet-flutter-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.prepare.outputs.flutter-version }}
+
+    - name: Cache Flet downloads
+      if: inputs.cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.flet/cache
+        key: flet-downloads-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.target }}-${{ steps.prepare.outputs.flet-version }}-py${{ inputs.bundled-python-version || 'auto' }}
+
+    - name: Install Linux build dependencies
+      if: steps.prepare.outputs.install-linux-dependencies == 'true'
+      env:
+        DEPENDENCIES_FILE: ${{ steps.prepare.outputs.linux-dependencies-file }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        if ! command -v apt-get >/dev/null 2>&1; then
+          echo "::error::Linux dependency installation requires apt-get. Set install-linux-dependencies to false and provision this runner manually."
+          exit 1
+        fi
+
+        mapfile -t packages < "$DEPENDENCIES_FILE"
+        if [[ ${#packages[@]} -eq 0 ]]; then
+          echo "::error::Flet did not report any Linux build dependencies."
+          exit 1
+        fi
+
+        if [[ ${EUID} -eq 0 ]]; then
+          apt-get update --allow-releaseinfo-change
+          apt-get install -y --no-install-recommends "${packages[@]}"
+          apt-get clean
+        elif command -v sudo >/dev/null 2>&1; then
+          sudo apt-get update --allow-releaseinfo-change
+          sudo apt-get install -y --no-install-recommends "${packages[@]}"
+          sudo apt-get clean
+        else
+          echo "::error::Linux dependency installation requires root or sudo. Set install-linux-dependencies to false and provision this runner manually."
+          exit 1
+        fi
+
+    - name: Build Flet app
+      id: build
+      env:
+        ACTION_WORKING_DIRECTORY: ${{ steps.prepare.outputs.working-directory }}
+        ACTION_TARGET: ${{ inputs.target }}
+        ACTION_OUTPUT_PATH: ${{ steps.prepare.outputs.output-path }}
+        ACTION_BUNDLED_PYTHON_VERSION: ${{ inputs.bundled-python-version }}
+        ACTION_BUILD_NUMBER: ${{ inputs.build-number }}
+        ACTION_BUILD_VERSION: ${{ inputs.build-version }}
+        ACTION_EXTRA_ARGS: ${{ inputs.extra-args }}
+        UV_PYTHON: ${{ inputs.runner-python-version }}
+        PYTHONUTF8: "1"
+        FLET_CLI_NO_RICH_OUTPUT: "1"
+      shell: bash
+      run: >-
+        uv run --directory "$ACTION_WORKING_DIRECTORY" python
+        "$GITHUB_ACTION_PATH/scripts/flet_action.py" build
+
+    - name: Archive build output
+      id: archive
+      env:
+        ACTION_WORKING_DIRECTORY: ${{ steps.prepare.outputs.working-directory }}
+        ACTION_TARGET: ${{ inputs.target }}
+        ACTION_OUTPUT_PATH: ${{ steps.prepare.outputs.output-path }}
+        ACTION_ARCHIVE_OUTPUT: ${{ inputs.archive-output }}
+        ACTION_FLET_VERSION: ${{ steps.prepare.outputs.flet-version }}
+        ACTION_FLUTTER_VERSION: ${{ steps.prepare.outputs.flutter-version }}
+        UV_PYTHON: ${{ inputs.runner-python-version }}
+      shell: bash
+      run: >-
+        uv run --directory "$ACTION_WORKING_DIRECTORY" python
+        "$GITHUB_ACTION_PATH/scripts/flet_action.py" archive
