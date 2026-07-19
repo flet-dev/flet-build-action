@@ -1,5 +1,5 @@
 name: Build Flet app
-description: Build and optionally archive a Flet app for one target on the current runner.
+description: Build Flet apps for Android, iOS, macOS, Linux, Windows, and web.
 author: Flet
 
 branding:
