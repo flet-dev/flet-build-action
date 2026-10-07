@@ -54,6 +54,12 @@ jobs:
           requires-python = ">=3.10"
           dependencies = ["flet"]
 
+          # Canary workaround: without flet-cli installed, `flet --version --json`
+          # first prints "Installing flet-cli ... OK" to stdout, which breaks the
+          # action's JSON parsing on every image.
+          [dependency-groups]
+          dev = ["flet-cli"]
+
           [tool.flet]
           org = "dev.flet"
           product = "Smoke Test"
@@ -83,7 +89,7 @@ jobs:
           set +e
           grep -E '^(VERSION|VERSION_CODENAME)=' /etc/os-release
           echo "ImageOS=$ImageOS ImageVersion=$ImageVersion JAVA_HOME=$JAVA_HOME"
-          findmnt -no FSTYPE,SIZE,OPTIONS /tmp
+          findmnt -no FSTYPE,SIZE,OPTIONS /tmp || echo "/tmp is not a separate mount"
 
       - name: Build app
         id: build
