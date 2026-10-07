@@ -1,6 +1,8 @@
 name: Build Smoke Test
 
 on:
+  push:
+    branches: ['test/ubuntu-26.04']
   workflow_dispatch:
 
 permissions:
@@ -8,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.target }}
+    name: Build ${{ matrix.target }} (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -16,28 +18,23 @@ jobs:
       matrix:
         include:
           - target: apk
-            runner: ubuntu-latest
+            runner: ubuntu-26.04
 
           - target: aab
-            runner: ubuntu-latest
-
-          - target: ipa
-            runner: macos-latest
-
-          - target: ios-simulator
-            runner: macos-latest
+            runner: ubuntu-26.04
 
           - target: linux
-            runner: ubuntu-latest
-
-          - target: macos
-            runner: macos-latest
+            runner: ubuntu-26.04
 
           - target: web
-            runner: ubuntu-latest
+            runner: ubuntu-26.04
 
-          - target: windows
-            runner: windows-latest
+          # 24.04 controls
+          - target: apk
+            runner: ubuntu-24.04
+
+          - target: linux
+            runner: ubuntu-24.04
 
     steps:
       - name: Checkout repository
@@ -64,6 +61,10 @@ jobs:
 
           [tool.flet.app]
           path = "src"
+
+          # flet 1.0.3 workaround for flet-dev/flet#6919 (fixed in 1.0.4)
+          [tool.flet.flutter.pubspec.dependency_overrides]
+          jni = "^1.1.0"
           EOF
           cat > sample/src/main.py <<'EOF'
           import flet as ft
@@ -75,6 +76,14 @@ jobs:
 
           ft.run(main)
           EOF
+
+      - name: Runner diagnostics
+        shell: bash
+        run: |
+          set +e
+          grep -E '^(VERSION|VERSION_CODENAME)=' /etc/os-release
+          echo "ImageOS=$ImageOS ImageVersion=$ImageVersion JAVA_HOME=$JAVA_HOME"
+          findmnt -no FSTYPE,SIZE,OPTIONS /tmp
 
       - name: Build app
         id: build
@@ -95,11 +104,3 @@ jobs:
           set -euo pipefail
           test -d "$OUTPUT_PATH"
           test -f "$ARCHIVE_PATH"
-
-      - name: Upload archive
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          path: ${{ steps.build.outputs.archive-path }}
-          archive: false
-          if-no-files-found: error
-          overwrite: false
